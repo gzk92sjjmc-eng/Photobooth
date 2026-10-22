@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Photo Booth</title>
+<style>
+  /* ===== Stile generale: cabina vintage anni 2000 ===== */
+  :root { color-scheme: dark; --bg:#1a0f12; --red:#a3202f; --cream:#f4ead5; --gold:#e3b04b; --ink:#2b1d20; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--cream);
+    font-family: "Georgia", "Times New Roman", serif; overflow: hidden; }
+  body { padding: env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px); }
+  .screen { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center;
+    justify-content: center; gap: 3vh; padding: 4vh 5vw; text-align: center;
+    background: radial-gradient(circle at 50% 0%, #4a1520 0%, var(--bg) 70%); }
+  .screen.active { display: flex; }
+  h1 { font-size: clamp(40px, 9vw, 84px); margin: 0; letter-spacing: .12em; text-transform: uppercase; color: var(--gold);
+    text-shadow: 0 0 18px rgba(227,176,75,.45); }
+  p.sub { font-size: clamp(18px, 3vw, 28px); margin: 0; opacity: .85; font-style: italic; }
+  button { font: inherit; cursor: pointer; border: 0; border-radius: 999px; color: var(--cream); }
+  .choices { display: flex; gap: 4vw; }
+  .choice { width: 34vw; max-width: 300px; padding: 3vh 2vw; background: #2d1a1e; border: 4px solid #5a3a40;
+    font-size: clamp(20px, 3.4vw, 32px); border-radius: 24px; transition: .15s; }
+  .choice .sw { display: block; height: 12vh; border-radius: 12px; margin-bottom: 2vh;
+    background: linear-gradient(135deg, #e23b4e, #f0b429, #2fa4e7); }
+  .choice[data-mode="bw"] .sw { background: linear-gradient(135deg, #fff, #777, #000); }
+  .choice.sel { border-color: var(--gold); background: #4a2630; transform: scale(1.05); }
+  .big { background: var(--red); font-size: clamp(26px, 4.6vw, 44px); padding: 3vh 8vw; letter-spacing: .08em;
+    text-transform: uppercase; box-shadow: 0 8px 0 #5c0f1a; }
+  .big:active { transform: translateY(6px); box-shadow: 0 2px 0 #5c0f1a; }
+  .ghost { background: transparent; border: 2px solid var(--cream); padding: 1.6vh 4vw; font-size: clamp(16px, 2.6vw, 24px); }
+
+  /* ===== Schermata di scatto ===== */
+  #camBox { position: relative; width: 100%; max-width: 900px; aspect-ratio: 4/3; border: 14px solid var(--cream);
+    border-radius: 16px; overflow: hidden; background: #000; box-shadow: 0 0 0 6px var(--red), 0 20px 50px #000a; }
+  #video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); } /* effetto specchio */
+  #video.bw { filter: grayscale(1) contrast(1.1); } /* anteprima B/N in tempo reale */
+  #count { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: min(40vw, 320px); font-weight: bold; color: #fff; text-shadow: 0 0 30px #000, 0 0 8px #000; }
+  #count.pop { animation: pop 1s ease-out; }
+  @keyframes pop { from { transform: scale(1.5); opacity: .2; } to { transform: scale(1); opacity: 1; } }
+  #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+  #flash.go { animation: flash .5s ease-out; }
+  @keyframes flash { 0% { opacity: 1; } 100% { opacity: 0; } }
+  #status { font-size: clamp(22px, 4vw, 38px); letter-spacing: .1em; text-transform: uppercase; color: var(--gold); }
+  #thumbs { display: flex; gap: 1.5vw; }
+  .th { width: 14vw; max-width: 130px; aspect-ratio: 4/3; border: 3px dashed #7a5a60; border-radius: 6px;
+    background: #2d1a1e center/cover no-repeat; }
+  .th.done { border: 3px solid var(--cream); }
+
+  /* ===== Risultato ===== */
+  #resultImg { height: 62vh; max-width: 90%; background: #fff; box-shadow: 0 12px 40px #000c; }
+  .row { display: flex; gap: 3vw; flex-wrap: wrap; justify-content: center; }
+  .row button { padding: 2vh 5vw; font-size: clamp(20px, 3.4vw, 30px); background: var(--red); }
+  .row button.alt { background: #3a2a2e; border: 2px solid var(--cream); }
+  #toast { font-size: clamp(14px, 2.2vw, 20px); opacity: .8; min-height: 1.4em; }
+
+  /* ===== Stampa: solo la pagina A4 ===== */
+  #printArea { display: none; }
+  @page { size: A4 portrait; margin: 0; }
+  @media print {
+    html, body { background: #fff; overflow: visible; height: auto; padding: 0; }
+    .screen { display: none !important; }
+    #printArea { display: block; }
+    #printArea img { display: block; width: 210mm; height: 297mm; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 1. SCHERMATA INIZIALE -->
+<section id="sHome" class="screen active">
+  <h1>Photo Booth</h1>
+  <p class="sub">Scegli lo stile, poi preparati: 5 scatti, uno ogni 5 secondi!</p>
+  <div class="choices">
+    <button class="choice sel" data-mode="color"><span class="sw"></span>A Colori</button>
+    <button class="choice" data-mode="bw"><span class="sw"></span>Bianco e Nero</button>
+  </div>
+  <button id="btnStart" class="big">Inizia</button>
+  <p id="err" class="sub" style="color:#ff8a8a"></p>
+</section>
+
+<!-- 2. SCHERMATA DI SCATTO -->
+<section id="sShoot" class="screen">
+  <div id="status">Preparati…</div>
+  <div id="camBox">
+    <video id="video" autoplay playsinline muted></video>
+    <div id="count"></div>
+    <div id="flash"></div>
+  </div>
+  <div id="thumbs"></div>
+  <button id="btnCancel" class="ghost">Annulla</button>
+</section>
+
+<!-- 3. RISULTATO -->
+<section id="sResult" class="screen">
+  <h1 style="font-size:clamp(28px,6vw,52px)">Ecco la tua striscia!</h1>
+  <img id="resultImg" alt="Striscia fotografica su foglio A4">
+  <div class="row">
+    <button id="btnPrint">🖨 Stampa</button>
+    <button id="btnSave" class="alt">⬇ Salva in Foto</button>
+    <button id="btnNew" class="alt">Nuova sessione</button>
+  </div>
+  <div id="toast"></div>
+</section>
+
+<div id="printArea"><img id="printImg" alt=""></div>
+<canvas id="work" hidden></canvas>
+
+<script>
+/* ============ CONFIGURAZIONE ============ */
+const SHOTS = 5;            // numero di scatti
+const COUNTDOWN = 5;        // secondi tra uno scatto e l'altro
+const IDLE_MS = 30000;      // inattività prima del ripristino
+const A4 = { w: 2480, h: 3508 };        // A4 a 300 dpi (210x297 mm)
+// Geometria della striscia (unità "logiche", poi scalate per stare nell'A4)
+const STRIP = { w: 680, margin: 40, pw: 600, ph: 450, gap: 30, caption: 120, scale: 1.2 };
+STRIP.h = STRIP.margin*2 + SHOTS*STRIP.ph + (SHOTS-1)*STRIP.gap + STRIP.caption;
+
+/* ============ STATO E RIFERIMENTI ============ */
+const $ = id => document.getElementById(id);
+let mode = 'color', stream = null, aborted = false, idleTimer = null, a4Canvas = null, wakeLock = null;
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  $(id).classList.add('active');
+}
+
+/* ============ SCHERMATA INIZIALE ============ */
+document.querySelectorAll('.choice').forEach(b => b.onclick = () => {
+  mode = b.dataset.mode;
+  document.querySelectorAll('.choice').forEach(x => x.classList.toggle('sel', x === b));
+});
+$('btnStart').onclick = startSession;
+$('btnCancel').onclick = () => { aborted = true; };
+
+async function ensureCamera() {
+  if (stream && stream.active) return;
+  // Fotocamera frontale dell'iPad; richiede HTTPS
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+  $('video').srcObject = stream;
+  await $('video').play();
+}
+
+/* ============ SESSIONE DI SCATTO ============ */
+async function startSession() {
+  $('err').textContent = '';
+  try {
+    await ensureCamera();
+    try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {} // schermo sempre acceso
+  } catch (e) {
+    $('err').textContent = 'Impossibile accedere alla fotocamera. Controlla i permessi e che la pagina sia in HTTPS.';
+    return;
+  }
+  aborted = false;
+  $('video').classList.toggle('bw', mode === 'bw');
+  $('thumbs').innerHTML = '<div class="th"></div>'.repeat(SHOTS);
+  show('sShoot');
+
+  const frames = [];
+  for (let i = 0; i < SHOTS; i++) {
+    $('status').textContent = `Scatto ${i + 1} di ${SHOTS}`;
+    for (let c = COUNTDOWN; c >= 1; c--) {          // countdown ben visibile
+      if (aborted) return resetToHome();
+      const el = $('count'); el.textContent = c;
+      el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+      await wait(1000);
+    }
+    if (aborted) return resetToHome();
+    $('count').textContent = '';
+    const f = $('flash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go'); // flash
+    const frame = captureFrame();
+    frames.push(frame);
+    const th = $('thumbs').children[i];
+    th.style.backgroundImage = `url(${frame.toDataURL('image/jpeg', .5)})`; th.classList.add('done');
+    await wait(700);
+  }
+  $('status').textContent = 'Sto sviluppando…';
+  await wait(100);
+  a4Canvas = buildA4(frames);
+  const url = a4Canvas.toDataURL('image/jpeg', .95);
+  $('resultImg').src = url; $('printImg').src = url;
+  $('toast').textContent = '';
+  show('sResult');
+  armIdle();
+}
+
+/* Cattura un frame 4:3 centrato, specchiato come l'anteprima; B/N in post-elaborazione */
+function captureFrame() {
+  const v = $('video'), W = 1200, H = 900;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  const vw = v.videoWidth, vh = v.videoHeight;
+  let sw = vw, sh = vw * 3 / 4;                      // ritaglio 4:3
+  if (sh > vh) { sh = vh; sw = vh * 4 / 3; }
+  x.translate(W, 0); x.scale(-1, 1);                 // specchio
+  x.drawImage(v, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, W, H);
+  if (mode === 'bw') {                               // (ctx.filter non è supportato da Safari: pixel manuali)
+    const d = x.getImageData(0, 0, W, H), p = d.data;
+    for (let i = 0; i < p.length; i += 4) {
+      let g = 0.299 * p[i] + 0.587 * p[i+1] + 0.114 * p[i+2];
+      g = Math.max(0, Math.min(255, (g - 128) * 1.1 + 128));   // leggero contrasto
+      p[i] = p[i+1] = p[i+2] = g;
+    }
+    x.putImageData(d, 0, 0);
+  }
+  return c;
+}
+
+/* ============ COMPOSIZIONE A4 ============ */
+function buildA4(frames) {
+  const c = $('work'); c.width = A4.w; c.height = A4.h;
+  const x = c.getContext('2d');
+  x.fillStyle = '#fff'; x.fillRect(0, 0, A4.w, A4.h);      // foglio pulito
+  const S = STRIP.scale, ox = (A4.w - STRIP.w * S) / 2, oy = (A4.h - STRIP.h * S) / 2;
+  x.save(); x.translate(ox, oy); x.scale(S, S);
+  // Segni di taglio sottili, fuori dalla striscia
+  x.strokeStyle = '#bbb'; x.lineWidth = 1.5;
+  [[0, 0], [STRIP.w, 0], [0, STRIP.h], [STRIP.w, STRIP.h]].forEach(([px, py]) => {
+    const dx = px ? 1 : -1, dy = py ? 1 : -1;
+    x.beginPath(); x.moveTo(px + dx * 8, py); x.lineTo(px + dx * 28, py);
+    x.moveTo(px, py + dy * 8); x.lineTo(px, py + dy * 28); x.stroke();
+  });
+  // Bordo bianco della striscia con filo grigio per guidare la taglierina
+  x.strokeStyle = '#d9d9d9'; x.lineWidth = 2; x.strokeRect(0, 0, STRIP.w, STRIP.h);
+  frames.forEach((f, i) => {
+    const px = STRIP.margin, py = STRIP.margin + i * (STRIP.ph + STRIP.gap);
+    x.drawImage(f, px, py, STRIP.pw, STRIP.ph);
+    x.strokeStyle = '#222'; x.lineWidth = 3; x.strokeRect(px, py, STRIP.pw, STRIP.ph);
+  });
+  // Didascalia vintage
+  const cy = STRIP.h - STRIP.margin - STRIP.caption / 2 + 10;
+  x.fillStyle = '#222'; x.textAlign = 'center';
+  x.font = 'bold 44px Georgia, serif'; x.fillText('PHOTO BOOTH', STRIP.w / 2, cy);
+  x.font = 'italic 26px Georgia, serif';
+  x.fillText(new Date().toLocaleDateString('it-IT', { day: '2-digit', month: 'long', year: 'numeric' }), STRIP.w / 2, cy + 40);
+  x.restore();
+  return c;
+}
+
+/* ============ STAMPA E SALVATAGGIO ============ */
+$('btnPrint').onclick = () => { clearTimeout(idleTimer); window.print(); }; // AirPrint su iPad
+window.addEventListener('afterprint', () => { if ($('sResult').classList.contains('active')) setTimeout(resetToHome, 1500); });
+
+$('btnSave').onclick = async () => {
+  armIdle();
+  const blob = await new Promise(r => a4Canvas.toBlob(r, 'image/jpeg', .95));
+  const file = new File([blob], `photobooth-${Date.now()}.jpg`, { type: 'image/jpeg' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      // Foglio di condivisione iOS: scegliere "Salva immagine"
+      await navigator.share({ files: [file], title: 'Photo Booth' });
+      $('toast').textContent = 'Salvata!';
+      return;
+    }
+  } catch (e) { if (e.name === 'AbortError') return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
+  $('toast').textContent = 'Immagine scaricata.';
+};
+$('btnNew').onclick = resetToHome;
+
+/* ============ INATTIVITÀ E RIPRISTINO ============ */
+function armIdle() { clearTimeout(idleTimer); idleTimer = setTimeout(resetToHome, IDLE_MS); }
+['touchstart', 'pointerdown'].forEach(ev => document.addEventListener(ev, () => {
+  if ($('sResult').classList.contains('active')) armIdle();
+}));
+function resetToHome() {
+  clearTimeout(idleTimer); aborted = true; a4Canvas = null;
+  $('resultImg').removeAttribute('src'); $('printImg').removeAttribute('src');
+  $('count').textContent = '';
+  show('sHome');
+}
+</script>
+</body>
+</html>
